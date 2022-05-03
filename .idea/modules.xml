@@ -2,6 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/../Machine-Learning-Engineering-with-MLflow/.idea/Machine-Learning-Engineering-with-MLflow.iml" filepath="$PROJECT_DIR$/../Machine-Learning-Engineering-with-MLflow/.idea/Machine-Learning-Engineering-with-MLflow.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/maestria_tesis.iml" filepath="$PROJECT_DIR$/.idea/maestria_tesis.iml" />
     </modules>
   </component>
