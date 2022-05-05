@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def df_optimized(df, verbose=True, **kwargs):
     """
     Reduces size of dataframe by downcasting numeircal columns
@@ -30,18 +31,20 @@ def quality_check(df):
     missing_data = pd.DataFrame({"column_name": df.columns,
                                  "percent_missing": percent_m,
                                  "percent_unique": percent_unique,
-                                 "sample_values": [df[col].unique()[0:10] for col in df.columns]} )
+                                 "sample_values": [df[col].unique()[0:10] for col in df.columns]})
     print("Evaluation uniques an Nan by Column")
     missing_data = missing_data.sort_values(by="percent_missing", ascending=False)
     return missing_data
 
 
 def missing_threshold(df, percentage):
+    """
+    Dado un umbral, eliminar las columnas que tienen más faltantes que ese porcentaje
+    """
     limitPer = len(df) * percentage
     print(f"Original shape {df.shape}")
     df.dropna(thresh=limitPer, axis=1, inplace=True)
     print(f"Final shape {df.shape}")
-    
 
 
 def drop_constant_column(dataframe):
