@@ -1,4 +1,4 @@
-from s3_utils import read_pickle
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -13,7 +13,7 @@ import seaborn as sns
 def predict_core(data=None, name_model=None, path_models=None):
     data.columns = [c.replace(' ', '_') for c in data.columns]
     print("*** Reading",name_model)
-    predictor = read_pickle(path_models + name_model + ".pkl")
+    #predictor = read_pickle(path_models + name_model + ".pkl")
     boost = predictor.booster_
     columns = boost.feature_name()
     X = data[columns]

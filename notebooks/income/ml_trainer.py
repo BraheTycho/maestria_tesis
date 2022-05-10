@@ -164,7 +164,6 @@ class LigthTrainer:
 
     def save_model(self,name):
         self.preds = self.model.predict(self.X_test)
-        path_s3 = "s3://data-science-kavak-dev/projects/cerberus/v2/dev/income/models_test/"
         """Save the model into a .pickle format"""
         write_pickle( path_s3 + f"{name}.pkl", self.model)
         print(colored(f"{name}.pkl saved in {path_s3}", "green"))
@@ -232,8 +231,8 @@ if __name__ == "__main__":
     # Get and clean data
     experiment = "IncomeModel"
     print(colored("############  Loading data   ############", "yellow"))
-    prospectos = pd.read_csv("s3://data-science-kavak-dev/projects/cerberus/v2/dev/income/data/prospectos.csv", index_col=0)
-    aprobados = pd.read_csv("s3://data-science-kavak-dev/projects/cerberus/v2/dev/income/data/aprobados.csv", usecols=prospectos.columns)
+    prospectos = pd.read_csv("/data/prospectos.csv", index_col=0)
+    aprobados = pd.read_csv("/data/aprobados.csv", usecols=prospectos.columns)
     df = pd.concat([aprobados, prospectos], ignore_index=True, sort=False)
     del aprobados
     del prospectos
