@@ -59,4 +59,86 @@ def create_dinamic(df):
     from pivottablejs import pivot_ui
     HTML('pivottablejs.html')
     return pivot_ui(df[selected])
-    
+
+
+
+with mlflow.start_run(nested=True) as run:
+    experiment_name = "Income Prediction"
+    mlflow.set_experiment(experiment_name)
+    mlflc = MLflowCallback(
+    metric_name="MSE")
+    @mlflc.track_in_mlflow()
+    def objective(trial):
+        param = {
+            'metric': 'mse',
+            'random_state': 42,
+            'n_estimators': trial.suggest_categorical('n_estimators', [500]),
+            'reg_alpha': trial.suggest_loguniform('reg_alpha', 1e-3, 10.0),
+            'reg_lambda': trial.suggest_loguniform('reg_lambda', 1e-3, 10.0),
+            'colsample_bytree': trial.suggest_categorical('colsample_bytree', [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]),
+            'subsample': trial.suggest_categorical('subsample', [0.4, 0.5, 0.6, 0.7, 0.8, 1.0]),
+            'learning_rate': trial.suggest_categorical('learning_rate', [0.006, 0.01, 0.02, 0.05, 0.1, 0.15]),
+            'max_depth': trial.suggest_categorical('max_depth', [3, 4, 5, 6, 7, 8, 9, 10, 15]),
+            'num_leaves': trial.suggest_int('num_leaves', 1, 1000),
+            'min_child_samples': trial.suggest_int('min_child_samples', 1, 300),
+            'cat_smooth': trial.suggest_int('min_data_per_groups', 1, 100),
+            'verbosity': -1
+        }
+
+        model = lgbm.LGBMRegressor(**param)
+
+        to_drop = ["primary_key", "ingreso_real"]
+        columnas = [col for col in raw_df.columns if col not in to_drop]
+        X = raw_df[columnas]
+        y = raw_df["ingreso_real"]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        model.fit(X_train, y_train, eval_set=[(X_test, y_test)], callbacks=[lgbm.early_stopping(stopping_rounds=20)])
+        preds = model.predict(X_test)
+        mse = mean_squared_error(y_test, preds, squared=False)
+
+        return mse
+
+
+    study = optuna.create_study(study_name="base")
+    study.optimize(objective, n_trials=10, callbacks=[mlflc])
+
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    print("Number of finished trials: ", len(study.trials))
+    print("Best trial:")
+    trial = study.best_trial
+    best_params = study.best_params
+    print("  Value: {}".format(trial.value))
+    print("  Params: ")
+
+    for key, value in trial.params.items():
+        print("    {}: {}".format(key, value))
+    lgbm_model = lgbm.LGBMRegressor(**best_params)
+
+    tic = time.time()
+    model.fit(X_train, y_train)
+    duration_training = time.time() - tic
+
+      # Make the prediction
+    tic1 = time.time()
+    prediction = model.predict(X_test)
+    duration_prediction = time.time() - tic1
+
+    # Evaluate the model prediction
+    metrics = {
+        "rmse" : np.sqrt(mean_squared_error(y_test, prediction)),
+        "MAPE" : MAPE(y_test, prediction),
+        "r2" : r2_score(y_test, prediction),
+        "duration_training" : duration_training,
+        "duration_prediction" : duration_prediction }
+
+      # Log in mlflow (parameter)
+    mlflow.log_params(**best_params)
+
+      # Log in mlflow (metrics)
+    mlflow.log_metrics(metrics)
+
+      # log in mlflow (model)
+    mlflow.sklearn.log_model(model, "Optuna LightGBM")
+
+      # Tag the model
+    mlflow.set_tags("Income model ")

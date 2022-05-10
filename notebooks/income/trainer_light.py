@@ -1,46 +1,22 @@
-import pandas as pd
-import gc
-from sklearn.model_selection import train_test_split
-import optuna
-from sklearn.metrics import mean_absolute_percentage_error as MAPE
-from sklearn.metrics import mean_squared_error 
-
-import lightgbm as lgbm
-import joblib
 import warnings
 warnings.filterwarnings('ignore')
-from s3_utils import read_pd_from_parquet, write_pickle, read_pickle
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import optuna 
-from optuna.visualization import plot_optimization_history, plot_param_importances
-from optuna import Trial, visualization
-from optuna.samplers import TPESampler
+import lightgbm as lgbm
 
+from sklearn.metrics import mean_absolute_percentage_error as MAPE
+from sklearn.metrics import mean_squared_error
 
 import multiprocessing
 import time
-import warnings
-from tempfile import mkdtemp
-
-import joblib
 import mlflow
-import pandas as pd
-
 from memoized_property import memoized_property
 from mlflow.tracking import MlflowClient
 from psutil import virtual_memory
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.linear_model import Lasso, Ridge, LinearRegression
-from sklearn.model_selection import train_test_split, RandomizedSearchCV
-from sklearn.pipeline import Pipeline, make_pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from termcolor import colored
+from sklearn.model_selection import train_test_split
 
+from termcolor import colored
 import datetime
+import optuna
+from optuna.integration.mlflow import MLflowCallback
 
 def simple_time_tracker(method):
     def timed(*args, **kw):
@@ -81,7 +57,6 @@ def objective(trial, X_train, X_test, y_train, y_test):
 
     return mse
 
-from optuna.integration.mlflow import MLflowCallback
 
 class LightTrainer:
     mlflow.start_run(nested=True)
@@ -91,10 +66,11 @@ class LightTrainer:
         :param y: Ingreso comprobado
         :param kwargs:
         """
-    def __init__(self,**kwargs):
+
+    def __init__(self, **kwargs):
         self.kwargs = kwargs
-        self.mlflow = kwargs.get("mlflow", True) 
-        self.experiment_name = kwargs.get("experiment_name", self.EXPERIMENT_NAME) 
+        self.mlflow = kwargs.get("mlflow", True)
+        self.experiment_name = kwargs.get("experiment_name", self.EXPERIMENT_NAME)
         self.X_train = None
         self.y_train = None
         self.X_test = None
@@ -107,12 +83,12 @@ class LightTrainer:
         self.target = None
         self.log_machine_specs()
         self.log_kwargs_params()
-        
 
-    def fit(self, df,model_name="Income" ,to_drop=['researchable_id', 'estimate', 'declarativa'], target="ingreso_real"):
-        self.ids = df[['researchable_id', 'estimate', 'declarativa']].copy()
+    def fit(self, df, model_name="Income", to_drop=['primary_key'],
+            target="ingreso_real"):
+        self.ids = df[to_drop].copy()
         date = datetime.datetime.now()
-        self.mlflow_log_tag(model_name, target,date)
+        self.mlflow_log_tag(model_name, target, date)
         to_drop = to_drop + [target]
         columnas = [col for col in df.columns if col not in to_drop]
         self.columns = columnas
@@ -121,12 +97,14 @@ class LightTrainer:
         y = df[target]
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-
     def optimize(self):
+        mlflc = MLflowCallback(
+            metric_name="my metric score",
+        )
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         study = optuna.create_study(direction="minimize")
-        func = lambda trial: objective(trial,self.X_train,self.X_test,self.y_train,self.y_test)
-        study.optimize(func, n_trials=25)
+        func = lambda trial: objective(trial, self.X_train, self.X_test, self.y_train, self.y_test)
+        study.optimize(func, n_trials=25, callbacks=[mlflc])
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         print("Number of finished trials: ", len(study.trials))
         print("Best trial:")
@@ -138,8 +116,9 @@ class LightTrainer:
         for key, value in trial.params.items():
             print("    {}: {}".format(key, value))
         lgbm_model = lgbm.LGBMRegressor(**self.best_params)
-        self.model = lgbm_model.fit(self.X_train, self.y_train, eval_set=[(self.X_test, self.y_test)],callbacks=[lgbm.early_stopping(stopping_rounds=50)])
-        
+        self.model = lgbm_model.fit(self.X_train, self.y_train, eval_set=[(self.X_test, self.y_test)],
+                                    callbacks=[lgbm.early_stopping(stopping_rounds=50)])
+
     @simple_time_tracker
     def train(self):
         tic = time.time()
@@ -155,14 +134,13 @@ class LightTrainer:
         self.mlflow_log_metric("mape_val", rmse_val)
         print(colored("mape train: {} || mape val: {}".format(rmse_train, rmse_val), "blue"))
 
-
     def compute_mape(self, X, Y, show=True):
         preds = self.model.predict(X)
         mape = MAPE(Y, preds)
         mlflow.log_params(self.best_params)
         return round(mape, 3)
 
-    def save_model(self,name):
+    def save_model(self, name):
         self.preds = self.model.predict(self.X_test)
         """Save the model into a .pickle format"""
         write_pickle(f"{name}.pkl", self.model)
@@ -172,7 +150,7 @@ class LightTrainer:
     ### MLFlow methods
     @memoized_property
     def mlflow_client(self):
-        #mlflow.set_tracking_uri(MLFLOW_URI)
+        # mlflow.set_tracking_uri(MLFLOW_URI)
         return MlflowClient()
 
     @memoized_property
@@ -193,16 +171,14 @@ class LightTrainer:
     def mlflow_log_metric(self, key, value):
         if self.mlflow:
             self.mlflow_client.log_metric(self.mlflow_run.info.run_id, key, value)
-            
+
     def mlflow_optuna(self, key, value):
         if self.mlflow:
             self.mlflow_client.log_metric(self.mlflow_run.info.run_id, key, value)
-    
-    def mlflow_log_tag(self, model_name, target,date):
-        if self.mlflow:
-             self.mlflow_client.set_tag(self.mlflow_run.info.run_id,f"{model_name}_{target}", f"{date}")
-           
 
+    def mlflow_log_tag(self, model_name, target, date):
+        if self.mlflow:
+            self.mlflow_client.set_tag(self.mlflow_run.info.run_id, f"{model_name}_{target}", f"{date}")
 
     def log_estimator_params(self):
         reg = self.model
@@ -222,4 +198,3 @@ class LightTrainer:
         ram = int(mem.total / 1000000000)
         self.mlflow_log_param("ram", ram)
         self.mlflow_log_param("cpus", cpus)
-
